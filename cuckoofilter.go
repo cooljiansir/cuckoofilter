@@ -22,7 +22,7 @@ func NewCuckooFilter(capacity uint) *CuckooFilter {
 	}
 	buckets := make([]bucket, capacity, capacity)
 	for i := range buckets {
-		buckets[i] = [bucketSize]fingerprint{}
+		buckets[i] = [bucketSize]item{}
 	}
 	return &CuckooFilter{buckets, 0}
 }
@@ -37,51 +37,65 @@ func NewDefaultCuckooFilter() *CuckooFilter {
 /*
 Lookup returns true if data is in the counter
 */
-func (cf *CuckooFilter) Lookup(data []byte) bool {
-	i1, i2, fp := getIndicesAndFingerprint(data, uint(len(cf.buckets)))
+func (cf *CuckooFilter) LookupAddr(key []byte)(uint32,bool) {
+	i1, i2, fp := getIndicesAndFingerprint(key, uint(len(cf.buckets)))
 	b1, b2 := cf.buckets[i1], cf.buckets[i2]
-	return b1.getFingerprintIndex(fp) > -1 || b2.getFingerprintIndex(fp) > -1
+	idx1,addr1 := b1.getFingerprintIndex(fp)
+	if idx1 > -1{
+		return addr1,true
+	}
+	idx2,addr2 := b2.getFingerprintIndex(fp)
+	if idx2 > -1{
+		return addr2,true
+	}
+	return 0,false
 }
 
 /*
 Insert inserts data into the counter and returns true upon success
 */
-func (cf *CuckooFilter) Insert(data []byte) bool {
-	i1, i2, fp := getIndicesAndFingerprint(data, uint(len(cf.buckets)))
-	if cf.insert(fp, i1) || cf.insert(fp, i2) {
+func (cf *CuckooFilter) InsertAddr(key []byte,addr uint32) bool {
+	i1, i2, fp := getIndicesAndFingerprint(key, uint(len(cf.buckets)))
+	it := item{
+		fp:fp,
+		addr:addr,
+	}
+	if cf.insert(it, i1) || cf.insert(it, i2) {
 		return true
 	}
-	return cf.reinsert(fp, i2)
+	return cf.reinsert(it, i2)
 }
 
 /*
 InsertUnique inserts data into the counter if not exists and returns true upon success
 */
+/*
 func (cf *CuckooFilter) InsertUnique(data []byte) bool {
 	if cf.Lookup(data) {
 		return false
 	}
 	return cf.Insert(data)
 }
+*/
 
-func (cf *CuckooFilter) insert(fp fingerprint, i uint) bool {
-	if cf.buckets[i].insert(fp) {
+func (cf *CuckooFilter) insert(it item, i uint) bool {
+	if cf.buckets[i].insert(it) {
 		cf.count++
 		return true
 	}
 	return false
 }
 
-func (cf *CuckooFilter) reinsert(fp fingerprint, i uint) bool {
+func (cf *CuckooFilter) reinsert(it item, i uint) bool {
 	for k := 0; k < maxCuckooCount; k++ {
 		j := rand.Intn(bucketSize)
-		oldfp := fp
-		fp = cf.buckets[i][j]
-		cf.buckets[i][j] = oldfp
+		next := cf.buckets[i][j]
+		cf.buckets[i][j] = it
 
 		// look in the alternate location for that random element
-		i = getAltIndex(fp, i, uint(len(cf.buckets)))
-		if cf.insert(fp, i) {
+		it = next
+		i = getAltIndex(it.fp, i, uint(len(cf.buckets)))
+		if cf.insert(it, i) {
 			return true
 		}
 	}
@@ -91,6 +105,7 @@ func (cf *CuckooFilter) reinsert(fp fingerprint, i uint) bool {
 /*
 Delete data from counter if exists and return if deleted or not
 */
+/*
 func (cf *CuckooFilter) Delete(data []byte) bool {
 	i1, i2, fp := getIndicesAndFingerprint(data, uint(len(cf.buckets)))
 	return cf.delete(fp, i1) || cf.delete(fp, i2)
@@ -103,7 +118,7 @@ func (cf *CuckooFilter) delete(fp fingerprint, i uint) bool {
 	}
 	return false
 }
-
+*/
 /*
 GetCount returns the number of items in the counter
 */
