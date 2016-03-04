@@ -1,45 +1,77 @@
 package cuckoofilter
 
-import "math/rand"
+import (
+	"os"
+	"math/rand"
+	"bufio"
+	"encoding/binary"
+)
 
 const maxCuckooCount = 500
 
 /*
 CuckooFilter represents a probabalistic counter
 */
+
 type CuckooFilter struct {
-	buckets []bucket
+	file *os.File
+	bucketStructSize uint
+	bucketLength uint
 	count   uint
 }
+func (f *CuckooFilter)getbucket(i uint)Bucket{
+	_,err := f.file.Seek(int64(i*f.bucketStructSize),0)
+	if err != nil{
+		panic(err)
+	}
+	bucket := Bucket{}
+	err = binary.Read(f.file,binary.BigEndian,&bucket)
+	if err != nil{
+		panic(err)
+	}
+	return bucket
+}
+
 
 /*
 NewCuckooFilter returns a new cuckoofilter with a given capacity
 */
-func NewCuckooFilter(capacity uint) *CuckooFilter {
+func NewCuckooFilter(capacity uint,filename string) *CuckooFilter {
 	capacity = getNextPow2(uint64(capacity)) / bucketSize
 	if capacity == 0 {
 		capacity = 1
 	}
-	buckets := make([]bucket, capacity, capacity)
-	for i := range buckets {
-		buckets[i] = [bucketSize]item{}
+	file,err := os.Create(filename)
+	if err != nil{
+		return nil
 	}
-	return &CuckooFilter{buckets, 0}
+	bucketStructSize := uint(binary.Size(Bucket{}))
+	w := bufio.NewWriter(file)
+	for i := uint(0);i<capacity*bucketStructSize;i++{
+		w.Write([]byte{0})
+	}
+	w.Flush()
+	return &CuckooFilter{
+		bucketStructSize:bucketStructSize,
+		file:file,
+		count:0,
+		bucketLength:capacity,
+	}
 }
 
 /*
 NewDefaultCuckooFilter returns a new cuckoofilter with the default capacity of 1000000
 */
-func NewDefaultCuckooFilter() *CuckooFilter {
-	return NewCuckooFilter(1000000)
+func NewDefaultCuckooFilter(filename string) *CuckooFilter {
+	return NewCuckooFilter(1000000,filename)
 }
 
 /*
 Lookup returns true if data is in the counter
 */
 func (cf *CuckooFilter) LookupAddr(key []byte)(uint32,bool) {
-	i1, i2, fp := getIndicesAndFingerprint(key, uint(len(cf.buckets)))
-	b1, b2 := cf.buckets[i1], cf.buckets[i2]
+	i1, i2, fp := getIndicesAndFingerprint(key, uint(cf.bucketLength))
+	b1, b2 := cf.getbucket(i1), cf.getbucket(i2)
 	idx1,addr1 := b1.getFingerprintIndex(fp)
 	if idx1 > -1{
 		return addr1,true
@@ -55,12 +87,14 @@ func (cf *CuckooFilter) LookupAddr(key []byte)(uint32,bool) {
 Insert inserts data into the counter and returns true upon success
 */
 func (cf *CuckooFilter) InsertAddr(key []byte,addr uint32) bool {
-	i1, i2, fp := getIndicesAndFingerprint(key, uint(len(cf.buckets)))
-	it := item{
-		fp:fp,
-		addr:addr,
+	i1, i2, fp := getIndicesAndFingerprint(key, uint(cf.bucketLength))
+	it := Item{
+		Fp:fp,
+		Addr:addr,
 	}
-	if cf.insert(it, i1) || cf.insert(it, i2) {
+	bkt1 := cf.getbucket(i1)
+	bkt2 := cf.getbucket(i2)
+	if cf.insert(bkt1,it, i1) || cf.insert(bkt2,it, i2) {
 		return true
 	}
 	return cf.reinsert(it, i2)
@@ -78,24 +112,38 @@ func (cf *CuckooFilter) InsertUnique(data []byte) bool {
 }
 */
 
-func (cf *CuckooFilter) insert(it item, i uint) bool {
-	if cf.buckets[i].insert(it) {
+func (cf *CuckooFilter) insert(bkt Bucket,it Item, i uint) bool {
+	if bkt.insert(it) {
 		cf.count++
+		cf.setBucket(i,bkt)
 		return true
 	}
 	return false
 }
+func (cf *CuckooFilter) setBucket(i uint,bkt Bucket){
+	_,err := cf.file.Seek(int64((i*cf.bucketStructSize)),0)
+        if err != nil{
+                panic(err)
+        }       
+        err = binary.Write(cf.file,binary.BigEndian,bkt)
+        if err != nil{
+                panic(err)
+        }
+}
 
-func (cf *CuckooFilter) reinsert(it item, i uint) bool {
+func (cf *CuckooFilter) reinsert(it Item, i uint) bool {
+	bkt := cf.getbucket(i)
 	for k := 0; k < maxCuckooCount; k++ {
 		j := rand.Intn(bucketSize)
-		next := cf.buckets[i][j]
-		cf.buckets[i][j] = it
+		next := bkt[j]
+		bkt[j] = it
+		cf.setBucket(i,bkt)
 
 		// look in the alternate location for that random element
 		it = next
-		i = getAltIndex(it.fp, i, uint(len(cf.buckets)))
-		if cf.insert(it, i) {
+		i = getAltIndex(it.Fp, i, uint(cf.bucketLength))
+		bkt = cf.getbucket(i)
+		if cf.insert(bkt,it, i) {
 			return true
 		}
 	}
@@ -111,7 +159,7 @@ func (cf *CuckooFilter) Delete(data []byte) bool {
 	return cf.delete(fp, i1) || cf.delete(fp, i2)
 }
 
-func (cf *CuckooFilter) delete(fp fingerprint, i uint) bool {
+func (cf *CuckooFilter) delete(fp Fingerprint, i uint) bool {
 	if cf.buckets[i].delete(fp) {
 		cf.count--
 		return true

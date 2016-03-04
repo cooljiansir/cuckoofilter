@@ -3,18 +3,19 @@ package cuckoofilter
 const fingerprintSize = 1
 const bucketSize = 4
 
-type fingerprint [fingerprintSize]byte
-type item struct{
-	fp fingerprint
-	addr uint32
+type Fingerprint [fingerprintSize]byte
+type Item struct{
+	Fp Fingerprint
+	Addr uint32
 }
-type bucket [bucketSize]item
+type Bucket [bucketSize]Item
 
-var nullFp = fingerprint{0}
+var nullFp = Fingerprint{0}
 
-func (b *bucket) insert(it item) bool {
+
+func (b *Bucket) insert(it Item) bool {
 	for i, item := range b {
-		if item.fp == nullFp {
+		if item.Fp == nullFp {
 			b[i] = it
 			return true
 		}
@@ -23,7 +24,7 @@ func (b *bucket) insert(it item) bool {
 }
 
 /*
-func (b *bucket) delete(fp fingerprint) bool {
+func (b *Bucket) delete(fp Fingerprint) bool {
 	for i, tfp := range b {
 		if tfp == fp {
 			b[i] = nullFp
@@ -34,10 +35,10 @@ func (b *bucket) delete(fp fingerprint) bool {
 }
 */
 
-func (b *bucket) getFingerprintIndex(fp fingerprint) (index int,addr uint32){
+func (b *Bucket) getFingerprintIndex(fp Fingerprint) (index int,addr uint32){
 	for i, it := range b {
-		if it.fp == fp {
-			return i,it.addr
+		if it.Fp == fp {
+			return i,it.Addr
 		}
 	}
 	return -1,uint32(0)
