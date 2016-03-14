@@ -1,7 +1,7 @@
 package cuckoofilter
 
 const fingerprintSize = 1
-const bucketSize = 4
+const bucketSize = 2
 
 type Fingerprint [fingerprintSize]byte
 type Item struct{

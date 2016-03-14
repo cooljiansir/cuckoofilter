@@ -4,6 +4,7 @@ import (
 	"os"
 	"math/rand"
 	"bufio"
+	"bytes"
 	"encoding/binary"
 )
 
@@ -25,7 +26,13 @@ func (f *CuckooFilter)getbucket(i uint)Bucket{
 		panic(err)
 	}
 	bucket := Bucket{}
-	err = binary.Read(f.file,binary.BigEndian,&bucket)
+	buf := make([]byte,f.bucketStructSize,f.bucketStructSize)
+	_,err = f.file.Read(buf)
+	if err != nil{
+		panic(err)
+	}
+	bf := bytes.NewBuffer(buf)
+	err = binary.Read(bf,binary.BigEndian,&bucket)
 	if err != nil{
 		panic(err)
 	}
@@ -41,16 +48,22 @@ func NewCuckooFilter(capacity uint,filename string) *CuckooFilter {
 	if capacity == 0 {
 		capacity = 1
 	}
-	file,err := os.Create(filename)
+	needinit := false
+	if _, err := os.Stat(filename); os.IsNotExist(err) {
+		needinit = true
+	}		
+	file,err := os.OpenFile(filename,os.O_CREATE | os.O_RDWR,0666)
 	if err != nil{
 		return nil
 	}
 	bucketStructSize := uint(binary.Size(Bucket{}))
+	if needinit{
 	w := bufio.NewWriter(file)
-	for i := uint(0);i<capacity*bucketStructSize;i++{
-		w.Write([]byte{0})
+		for i := uint(0);i<capacity*bucketStructSize;i++{
+			w.Write([]byte{0})
+		}
+		w.Flush()
 	}
-	w.Flush()
 	return &CuckooFilter{
 		bucketStructSize:bucketStructSize,
 		file:file,
@@ -124,11 +137,16 @@ func (cf *CuckooFilter) setBucket(i uint,bkt Bucket){
 	_,err := cf.file.Seek(int64((i*cf.bucketStructSize)),0)
         if err != nil{
                 panic(err)
-        }       
-        err = binary.Write(cf.file,binary.BigEndian,bkt)
+        }
+	buf := new(bytes.Buffer)
+        err = binary.Write(buf,binary.BigEndian,bkt)
         if err != nil{
                 panic(err)
         }
+	_,err = cf.file.Write(buf.Bytes())
+	if err != nil{
+		panic(err)
+	}
 }
 
 func (cf *CuckooFilter) reinsert(it Item, i uint) bool {

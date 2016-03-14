@@ -17,7 +17,9 @@ func getAltIndex(fp Fingerprint, i uint, numBuckets uint) uint {
 	}
 
 	hash := binary.LittleEndian.Uint64(bytes)
-	return uint(uint64(i)^(hash*0x5bd1e995)) % numBuckets
+	res := uint(uint64(i)^(hash*0x5bd1e995)) % numBuckets
+	//return res
+	return ((i / 128) * 128 + (res % 128)) % numBuckets
 }
 
 func getFingerprint(data []byte) Fingerprint {
